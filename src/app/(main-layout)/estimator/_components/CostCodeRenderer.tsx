@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { Input } from "@/components/ui/input";
 import { Lightbulb, X as XIcon, ChevronDown, CheckCircle2 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
@@ -54,28 +55,61 @@ interface CostCodeRendererProps {
 }
 
 // ─── TipsPopover ────────────────────────────────────────────────────────────
-const TipsPopover: React.FC<{ tips: string[]; label: string }> = ({
-  tips,
-  label,
-}) => {
+const TipsPopover: React.FC<{ tips: string[]; label: string }> = ({ tips, label }) => {
   const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState({ top: 0, left: 0 });
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
+  const POPOVER_W = 272;
+
+  const calcPos = () => {
+    if (!btnRef.current) return;
+    const rect = btnRef.current.getBoundingClientRect();
+    const vw = window.innerWidth;
+    const scrollY = window.scrollY;
+
+    let left = rect.left;
+    // flip left if overflows right edge
+    if (left + POPOVER_W > vw - 12) {
+      left = Math.max(8, rect.right - POPOVER_W);
+    }
+    // clamp to viewport
+    left = Math.max(8, Math.min(left, vw - POPOVER_W - 8));
+
+    setPos({ top: rect.bottom + scrollY + 6, left });
+  };
+
+  const handleOpen = () => {
+    calcPos();
+    setOpen(true);
+  };
 
   useEffect(() => {
     if (!open) return;
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node))
-        setOpen(false);
+    const close = (e: MouseEvent) => {
+      if (
+        popoverRef.current && !popoverRef.current.contains(e.target as Node) &&
+        btnRef.current && !btnRef.current.contains(e.target as Node)
+      ) setOpen(false);
     };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
+    const reposition = () => calcPos();
+    document.addEventListener("mousedown", close);
+    window.addEventListener("scroll", reposition, true);
+    window.addEventListener("resize", reposition);
+    return () => {
+      document.removeEventListener("mousedown", close);
+      window.removeEventListener("scroll", reposition, true);
+      window.removeEventListener("resize", reposition);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   return (
-    <div ref={ref} className="relative shrink-0">
+    <div className="relative shrink-0">
       <button
+        ref={btnRef}
         type="button"
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => (open ? setOpen(false) : handleOpen())}
         aria-label={`Tips for ${label}`}
         className={`relative flex items-center justify-center w-6 h-6 rounded-full transition-all duration-200 ${
           open
@@ -88,46 +122,53 @@ const TipsPopover: React.FC<{ tips: string[]; label: string }> = ({
           <span className="absolute inset-0 rounded-full animate-ping bg-[#283878]/20 pointer-events-none" />
         )}
       </button>
-      <div
-        className={`absolute left-0 top-8 z-50 w-64 transition-all duration-250 origin-top-left ${open ? "opacity-100 scale-100 translate-y-0 pointer-events-auto" : "opacity-0 scale-95 -translate-y-2 pointer-events-none"}`}
-      >
-        <div className="bg-white rounded-xl overflow-hidden shadow-2xl shadow-[#283878]/15 border border-[#283878]/12">
-          <div className="flex items-center justify-between px-3.5 py-2.5 bg-[#283878]">
-            <div className="flex items-center gap-2">
-              <div className="w-5 h-5 rounded-full bg-white/20 flex items-center justify-center">
-                <Lightbulb className="w-3 h-3 text-white" />
+
+      {open && typeof window !== "undefined" && createPortal(
+        <div
+          ref={popoverRef}
+          style={{ position: "absolute", top: pos.top, left: pos.left, width: POPOVER_W, zIndex: 9999 }}
+        >
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95, y: -4 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.95, y: -4 }}
+            transition={{ duration: 0.15 }}
+            className="bg-white rounded-xl overflow-hidden shadow-2xl shadow-[#283878]/20 border border-[#283878]/10"
+          >
+            <div className="flex items-center justify-between px-3.5 py-2.5 bg-[#283878]">
+              <div className="flex items-center gap-2">
+                <div className="w-5 h-5 rounded-full bg-white/20 flex items-center justify-center">
+                  <Lightbulb className="w-3 h-3 text-white" />
+                </div>
+                <span className="text-xs font-semibold text-white tracking-wide">Pro Tips</span>
+                <span className="text-[10px] bg-white/20 text-white px-1.5 py-0.5 rounded-full font-medium">
+                  {tips.length}
+                </span>
               </div>
-              <span className="text-xs font-semibold text-white tracking-wide">
-                Pro Tips
-              </span>
-              <span className="text-[10px] bg-white/20 text-white px-1.5 py-0.5 rounded-full font-medium">
-                {tips.length}
-              </span>
+              <button
+                type="button"
+                onClick={() => setOpen(false)}
+                className="w-5 h-5 rounded-full bg-white/10 hover:bg-white/25 flex items-center justify-center transition-colors"
+                aria-label="Close tips"
+              >
+                <XIcon className="w-3 h-3 text-white" />
+              </button>
             </div>
-            <button
-              type="button"
-              onClick={() => setOpen(false)}
-              className="w-5 h-5 rounded-full bg-white/10 hover:bg-white/25 flex items-center justify-center transition-colors"
-              aria-label="Close tips"
-            >
-              <XIcon className="w-3 h-3 text-white" />
-            </button>
-          </div>
-          <ul className="px-3.5 py-3 space-y-2.5">
-            {tips.map((tip, i) => (
-              <li key={i} className="flex gap-2.5 items-start">
-                <span className="mt-0.5 shrink-0 w-4 h-4 rounded-full bg-[#283878] text-white text-[9px] font-bold flex items-center justify-center">
-                  {i + 1}
-                </span>
-                <span className="text-xs text-gray-600 leading-relaxed">
-                  {tip}
-                </span>
-              </li>
-            ))}
-          </ul>
-          <div className="h-0.5 bg-linear-to-r from-[#283878] via-[#4064b8] to-transparent" />
-        </div>
-      </div>
+            <ul className="px-3.5 py-3 space-y-2.5 max-h-60 overflow-y-auto">
+              {tips.map((tip, i) => (
+                <li key={i} className="flex gap-2.5 items-start">
+                  <span className="mt-0.5 shrink-0 w-4 h-4 rounded-full bg-[#283878] text-white text-[9px] font-bold flex items-center justify-center">
+                    {i + 1}
+                  </span>
+                  <span className="text-xs text-gray-600 leading-relaxed">{tip}</span>
+                </li>
+              ))}
+            </ul>
+            <div className="h-0.5 bg-gradient-to-r from-[#283878] via-[#4064b8] to-transparent" />
+          </motion.div>
+        </div>,
+        document.body
+      )}
     </div>
   );
 };
